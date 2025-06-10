@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Perfil de Clústeres de Viviendas</title>
+    <script src="https://d3js.org/d3.v3.min.js"></script>
+    <style>
+        body { font-family: sans-serif; }
+        .chart-title { font-size: 24px; font-weight: bold; margin-bottom: 20px; text-align: center; }
+        .axis path, .axis line { fill: none; stroke: #333; shape-rendering: crispEdges; }
+        .axis text { font-size: 12px; }
+        .axis-label { font-size: 14px; font-weight: bold; }
+        /* Estilo para el Tooltip */
+        .tooltip {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.75);
+            color: #fff;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none; /* Evita que el tooltip interfiera con el mouse */
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+    </style>
+</head>
+<body>
+    <div class="chart-title">Perfil Promedio por Clúster (Valores Z)</div>
+    <div id="grouped-bar-chart"></div>
+
+<script>
+    // URL pública de tu archivo JSON
+    const url = 'https://raw.githubusercontent.com/adofredy/USA_Housing_No_AntigReno/main/USA_Housing_No_AntigReno.json';
+
+    // --- PASO 1: CONFIGURAR EL LIENZO SVG Y MÁRGENES ---
+    const margin = { top: 20, right: 30, bottom: 60, left: 60 };
+    const width = 960 - margin.left - margin.right;
+    const height = 500 - margin.top - margin.bottom;
+
+    const svg = d3.select("#grouped-bar-chart").append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+    
+    // Tooltip
+    const tooltip = d3.select("body").append("div")
+        .attr("class", "tooltip");
+
+    d3.json(url, function (error, data) {
+        if (error) {
+            console.error('Error al cargar el JSON:', error);
+            return;
+        }
+
+        // Variables significativas (Z-scores) que vamos a promediar y visualizar
+        const varNames = ["Z_price", "Z_sqftliving", "Z_bedrooms"];
+
+        // --- PASO 2: AGREGAR LOS DATOS POR CLÚSTER ---
+        // Usamos d3.nest() para agrupar por 'cluster' y calcular las medias de nuestras variables.
+        const aggregatedData = d3.nest()
+            .key(function(d) { return d.cluster; })
+            .rollup(function(leaves) {
+                const averages = {};
+                varNames.forEach(function(name) {
+                    // d3.mean calcula el promedio de los valores para la clave actual
+                    averages[name] = d3.mean(leaves, function(d) { return +d[name]; });
+                });
+                return averages;
+            })
+            .entries(data);
+
+        // Re-estructuramos los datos para que sea más fácil dibujar las barras agrupadas
+        const chartData = aggregatedData.map(function(d) {
+            return {
+                cluster: d.key,
+                values: varNames.map(function(name) {
+                    return { variable: name, value: d.values[name] };
+                })
+            };
+        });
+        
+        console.log("Datos procesados para el gráfico:", chartData);
+
+        // --- PASO 3: CREAR LAS ESCALAS ---
+        
+        // Escala X0 (para los grupos de clústeres)
+        const x0 = d3.scale.ordinal()
+            .domain(chartData.map(function(d) { return d.cluster; }))
+            .rangeRoundBands([0, width], 0.2); // 0.2 es el espaciado entre grupos
+
+        // Escala X1 (para las barras DENTRO de un grupo)
+        const x1 = d3.scale.ordinal()
+            .domain(varNames)
+            .rangeRoundBands([0, x0.rangeBand()], 0.1); // 0.1 es el espaciado entre barras
+
+        // Escala Y (para los valores promedio de Z-score)
+        const y = d3.scale.linear()
+            .domain(d3.extent(d3.merge(chartData.map(function(d) { return d.values; })), function(d) { return d.value; })).nice()
+            .range([height, 0]);
+
+        // Escala de Color (para cada variable)
+        const color = d3.scale.ordinal()
+            .range(["#1f77b4", "#ff7f0e", "#2ca02c"]); // Azul, Naranja, Verde
+
+        // --- PASO 4: DIBUJAR LOS EJES ---
+        const xAxis = d3.svg.axis().scale(x0).orient("bottom");
+        const yAxis = d3.svg.axis().scale(y).orient("left").tickFormat(d3.format(".2f"));
+        
+        svg.append("g").attr("class", "x axis").attr("transform", "translate(0," + height + ")").call(xAxis)
+            .append("text").attr("class", "axis-label").attr("x", width/2).attr("y", 40).style("text-anchor", "middle").text("Clúster");
+
+        svg.append("g").attr("class", "y axis").call(yAxis)
+            .append("text").attr("class", "axis-label").attr("transform", "rotate(-90)").attr("y", -40).attr("x", -height/2).style("text-anchor", "middle").text("Valor Promedio de clusteres x variable ");
+
+        // --- PASO 5: DIBUJAR LAS BARRAS AGRUPADAS ---
+        
+        // Creamos un grupo para cada clúster
+        const clusterGroup = svg.selectAll(".cluster")
+            .data(chartData)
+            .enter().append("g")
+            .attr("class", "cluster")
+            .attr("transform", function(d) { return "translate(" + x0(d.cluster) + ",0)"; });
+
+        // Dentro de cada grupo, creamos las barras para cada variable
+        clusterGroup.selectAll("rect")
+            .data(function(d) { return d.values; })
+            .enter().append("rect")
+            .attr("width", x1.rangeBand())
+            .attr("x", function(d) { return x1(d.variable); })
+            .attr("y", function(d) { return y(Math.max(0, d.value)); }) // Posición Y correcta para valores positivos y negativos
+            .attr("height", function(d) { return Math.abs(y(d.value) - y(0)); })
+            .style("fill", function(d) { return color(d.variable); })
+            // --- INTERACTIVIDAD: TOOLTIP ---
+            .on("mouseover", function(d) {
+                tooltip.transition().style("opacity", 1);
+                tooltip.html(`<strong>${d.variable}</strong><br>Valor Z: ${d.value.toFixed(3)}`)
+                    .style("left", (d3.event.pageX + 10) + "px")
+                    .style("top", (d3.event.pageY - 15) + "px");
+            })
+            .on("mouseout", function() {
+                tooltip.transition().style("opacity", 0);
+            });
+            
+        // --- PASO 6: CREAR LA LEYENDA ---
+        const legend = svg.selectAll(".legend")
+            .data(varNames)
+            .enter().append("g")
+            .attr("class", "legend")
+            .attr("transform", function(d, i) { return "translate(0," + i * 20 + ")"; });
+
+        legend.append("rect")
+            .attr("x", width - 18)
+            .attr("width", 18)
+            .attr("height", 18)
+            .style("fill", color);
+
+        legend.append("text")
+            .attr("x", width - 24)
+            .attr("y", 9)
+            .attr("dy", ".35em")
+            .style("text-anchor", "end")
+            .text(function(d) { return d; });
+    });
+</script>
+
+</body>
+</html>
