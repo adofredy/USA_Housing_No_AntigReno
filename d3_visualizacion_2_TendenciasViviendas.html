@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis de Tendencias en D3.js - Viviendas</title>
+    <script src="https://d3js.org/d3.v3.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            margin-bottom: 20px;
+        }
+        .chart-title {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 25px;
+            text-align: center;
+            color: #2c3e50;
+        }
+        .section-title {
+            font-size: 22px;
+            font-weight: bold;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            color: #34495e;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 5px;
+        }
+        .chart-container {
+            margin-bottom: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+        .axis path, .axis line {
+            fill: none;
+            stroke: #a0a0a0;
+            shape-rendering: crispEdges;
+        }
+        .axis text {
+            font-size: 11px;
+            fill: #555;
+        }
+        .axis-label {
+            font-size: 14px;
+            font-weight: bold;
+            fill: #444;
+        }
+        .line {
+            fill: none;
+            stroke-width: 2px;
+            transition: stroke-width 0.2s ease;
+        }
+        .line:hover {
+            stroke-width: 3px;
+        }
+        .dot {
+            transition: r 0.1s ease, fill 0.1s ease;
+            cursor: pointer;
+        }
+        .dot:hover {
+            r: 6px;
+            fill: #2980b9 !important; /* Lighter blue on hover */
+        }
+        .tooltip {
+            position: absolute;
+            background-color: rgba(44, 62, 80, 0.9);
+            color: #fff;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 13px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s, transform 0.2s;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+        }
+        .legend {
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .legend rect {
+            border-radius: 4px;
+        }
+        .dropdown-container {
+            margin-bottom: 20px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .dropdown-container label {
+            font-weight: bold;
+            color: #34495e;
+        }
+        .dropdown-container select {
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            background-color: #f8f8f8;
+            font-size: 14px;
+            cursor: pointer;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .dropdown-container select:focus {
+            border-color: #3498db;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            .chart-title {
+                font-size: 22px;
+            }
+            .section-title {
+                font-size: 18px;
+            }
+            .axis text {
+                font-size: 10px;
+            }
+            .axis-label {
+                font-size: 12px;
+            }
+            .dropdown-container {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="chart-title">Análisis de Tendencias en el Mercado de Viviendas de EE. UU.</div>
+
+        <div class="section-title">Promedio Estandarizado por Clúster y Variable Seleccionada</div>
+        <p class="text-sm text-gray-600 mb-4 text-center">Este gráfico de líneas muestra los valores promedio estandarizados (Z-Score) de una característica específica a través de los diferentes clústeres. Selecciona la característica para ver su tendencia.</p>
+        
+        <div class="dropdown-container">
+            <label for="variable-selector">Selecciona una variable:</label>
+            <select id="variable-selector">
+                <option value="Z_price">Precio Estandarizado (Z_price)</option>
+                <option value="Z_bedrooms">Habitaciones Estandarizadas (Z_bedrooms)</option>
+                <option value="Z_sqftliving">Área Habitable Estandarizada (Z_sqftliving)</option>
+                <option value="Z_bathrooms">Baños Estandarizados (Z_bathrooms)</option>
+                <option value="Z_sqftlot">Área Lote Estandarizada (Z_sqftlot)</option>
+                <option value="Z_floors">Pisos Estandarizados (Z_floors)</option>
+                <option value="Calculated_Antigüedad">Antigüedad Calculada (Z_Antigüedad)</option>
+            </select>
+        </div>
+        
+        <div id="line-chart" class="chart-container"></div>
+    </div>
+
+<script>
+    const url = 'https://raw.githubusercontent.com/adofredy/USA_Housing_No_AntigReno/main/USA_Housing_No_AntigReno.json';
+
+    function handleDataError(error) {
+        console.error('Error al cargar el JSON:', error);
+        d3.select("body").append("div")
+            .attr("class", "text-red-500 text-center font-bold mt-10 p-4 bg-red-100 rounded-md")
+            .text("Error al cargar los datos. Por favor, asegúrate de que la URL del JSON es correcta.");
+        return;
+    }
+
+    const margin = { top: 20, right: 30, bottom: 60, left: 60 };
+    const width = 960 - margin.left - margin.right;
+    const height = 400 - margin.top - margin.bottom;
+
+    const colors = d3.scale.category10();
+
+    const tooltip = d3.select("body").append("div")
+        .attr("class", "tooltip");
+
+    let originalData; // Store original data to redraw the chart
+
+    function createLineChart(data, selectedVariable) {
+        d3.select("#line-chart").select("svg").remove(); // Clear previous chart
+
+        const clusters = Array.from(new Set(data.map(d => d.cluster))).sort(d3.ascending);
+
+        const aggregatedData = d3.nest()
+            .key(function(d) { return d.cluster; })
+            .rollup(function(leaves) {
+                return d3.mean(leaves, function(d) { return d[selectedVariable]; });
+            })
+            .entries(data)
+            .sort(function(a, b) { return d3.ascending(a.key, b.key); })
+            .map(d => ({ cluster: `Clúster ${d.key}`, value: d.values }));
+
+        const x = d3.scale.ordinal()
+            .domain(aggregatedData.map(d => d.cluster))
+            .rangeRoundPoints([0, width], 0.5);
+
+        const y = d3.scale.linear()
+            .domain(d3.extent(aggregatedData, d => d.value)).nice()
+            .range([height, 0]);
+
+        const svg = d3.select("#line-chart").append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        const xAxis = d3.svg.axis().scale(x).orient("bottom");
+        const yAxis = d3.svg.axis().scale(y).orient("left").ticks(10);
+
+        svg.append("g")
+            .attr("class", "x axis")
+            .attr("transform", `translate(0,${height})`)
+            .call(xAxis);
+
+        svg.append("text")
+            .attr("class", "axis-label")
+            .attr("x", width / 2)
+            .attr("y", height + margin.bottom - 10)
+            .style("text-anchor", "middle")
+            .text("Clúster");
+
+        svg.append("g")
+            .attr("class", "y axis")
+            .call(yAxis);
+
+        svg.append("text")
+            .attr("class", "axis-label")
+            .attr("transform", "rotate(-90)")
+            .attr("y", 0 - margin.left + 15)
+            .attr("x", 0 - (height / 2))
+            .style("text-anchor", "middle")
+            .text(d3.select("#variable-selector option:checked").text());
+
+        const lineGenerator = d3.svg.line()
+            .x(d => x(d.cluster))
+            .y(d => y(d.value));
+
+        svg.append("path")
+            .datum(aggregatedData)
+            .attr("class", "line")
+            .attr("d", lineGenerator)
+            .style("stroke", colors(0)); // Use a default color for the line itself
+
+        svg.selectAll(".dot")
+            .data(aggregatedData)
+            .enter().append("circle")
+            .attr("class", "dot")
+            .attr("cx", d => x(d.cluster))
+            .attr("cy", d => y(d.value))
+            .attr("r", 5)
+            .style("fill", (d, i) => colors(clusters[i])) // Color dots by cluster
+            .style("stroke", "#fff")
+            .style("stroke-width", 1.5)
+            .on("mouseover", function(d) {
+                tooltip.transition().style("opacity", 1);
+                tooltip.html(`<strong>${d.cluster}</strong><br>${d3.select("#variable-selector option:checked").text()}: ${d.value.toFixed(3)}`)
+                    .style("left", (d3.event.pageX + 10) + "px")
+                    .style("top", (d3.event.pageY - 15) + "px");
+                d3.select(this).attr("r", 6).style("fill", "#2980b9");
+            })
+            .on("mouseout", function(d, i) {
+                tooltip.transition().style("opacity", 0);
+                d3.select(this).attr("r", 5).style("fill", colors(clusters[i]));
+            });
+
+        // Add a line at Z=0 for reference
+        svg.append("line")
+            .attr("class", "average-line")
+            .attr("x1", 0)
+            .attr("y1", y(0))
+            .attr("x2", width)
+            .attr("y2", y(0));
+        
+        svg.append("text")
+            .attr("x", width + 5)
+            .attr("y", y(0) + 3)
+            .attr("dy", ".35em")
+            .style("text-anchor", "start")
+            .style("font-size", "10px")
+            .style("fill", "#e74c3c")
+            .text("Z = 0");
+    }
+
+    d3.json(url, function (error, data) {
+        if (error) {
+            handleDataError(error);
+            return;
+        }
+
+        originalData = data; // Store the fetched data
+
+        originalData.forEach(d => {
+            d.price = +d.price;
+            d.bedrooms = +d.bedrooms;
+            d.bathrooms = +d.bathrooms;
+            d.sqft_living = +d.sqft_living;
+            d.sqft_lot = +d.sqft_lot;
+            d.floors = +d.floors;
+            d.waterfront = +d.waterfront;
+            d.view = +d.view;
+            d.condition = +d.condition;
+            d.sqft_above = +d.sqft_above;
+            d.sqft_basement = +d.sqft_basement;
+            d.yr_built = +d.yr_built;
+            d.yr_renovated = +d.yr_renovated;
+            d.Antigüedad = +d.Antigüedad;
+            d.Z_price = +d.Z_price;
+            d.Z_bedrooms = +d.Z_bedrooms;
+            d.Z_bathrooms = +d.Z_bathrooms;
+            d.Z_sqftliving = +d.Z_sqftliving;
+            d.Z_sqftlot = +d.Z_sqftlot;
+            d.Z_floors = +d.Z_floors;
+            d.Calculated_Antigüedad = +d.Calculated_Antigüedad;
+            d.cluster = +d.cluster;
+            d.price_bin = +d.price_bin;
+            d.sqft_living_bin = +d.sqft_living_bin;
+            d.bedrooms_bin = +d.bedrooms_bin;
+            d.floors_bin = +d.floors_bin;
+        });
+
+        // Initial chart creation
+        const initialVariable = d3.select("#variable-selector").node().value;
+        createLineChart(originalData, initialVariable);
+
+        // Add event listener for the dropdown
+        d3.select("#variable-selector").on("change", function() {
+            const newVariable = this.value;
+            createLineChart(originalData, newVariable);
+        });
+    });
+
+</script>
+</body>
+</html>
